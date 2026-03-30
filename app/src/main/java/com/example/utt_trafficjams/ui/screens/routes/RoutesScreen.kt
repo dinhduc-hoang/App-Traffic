@@ -15,7 +15,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -65,10 +64,6 @@ fun RoutesScreen(vm: RoutesViewModel = viewModel()) {
         Spacer(modifier = Modifier.height(24.dp))
 
         AlertRuleCard()
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        LiveMapPreviewCard()
 
         Spacer(modifier = Modifier.height(100.dp))
     }
@@ -573,63 +568,3 @@ private fun AlertRuleCard() {
     }
 }
 
-@Composable
-private fun LiveMapPreviewCard() {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .height(160.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            CardDarkLight,
-                            CardDark
-                        )
-                    )
-                )
-        ) {
-            // Map placeholder decorations
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                PrimaryAmber.copy(alpha = 0.08f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-
-            // Bottom label
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .clip(CircleShape)
-                        .background(PrimaryAmber)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "Xem bản đồ trực tuyến",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = TextWhite,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-    }
-}
