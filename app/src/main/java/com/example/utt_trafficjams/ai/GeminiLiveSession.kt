@@ -449,9 +449,9 @@ class GeminiLiveSession(
 
     private fun buildSystemInstructionText(): String {
         val ctx = liveAddressContextProvider()
-        val currentLocation = ctx.currentLocation?.takeIf { it.isNotBlank() } ?: "khong co"
-        val homeAddress = ctx.homeAddress?.takeIf { it.isNotBlank() } ?: "khong co"
-        val workAddress = ctx.workAddress?.takeIf { it.isNotBlank() } ?: "khong co"
+        val currentLocation = ctx.currentLocation?.takeIf { it.isNotBlank() } ?: "không có"
+        val homeAddress = ctx.homeAddress?.takeIf { it.isNotBlank() } ?: "không có"
+        val workAddress = ctx.workAddress?.takeIf { it.isNotBlank() } ?: "không có"
 
         return """
 Ban la Tro ly Traffic AI cua UTT. Luon tra loi ngan gon, de hieu bang tieng Viet.
@@ -669,9 +669,9 @@ QUY TAC BAT BUOC:
             }
         } catch (e: Exception) {
             JSONObject().apply {
-                put("route_name", "khong xac dinh")
+                put("route_name", "không xác định")
                 put("traffic_status", false)
-                put("duration", "khong xac dinh")
+                put("duration", "không xác định")
                 put("is_shortest", false)
                 put("error", e.message ?: "tool_failed")
             }
@@ -744,7 +744,7 @@ QUY TAC BAT BUOC:
 
         val sent = ws?.send(msg.toString()) == true
         if (!sent) {
-            onError("Khong gui duoc ToolResponse cho ${call.name} vi WebSocket khong san sang.")
+            onError("Không gửi được ToolResponse cho ${call.name} vì WebSocket không sẵn sàng.")
         }
     }
 }

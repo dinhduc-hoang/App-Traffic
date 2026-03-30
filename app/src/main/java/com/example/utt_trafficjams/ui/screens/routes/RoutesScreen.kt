@@ -127,20 +127,20 @@ private fun AddRouteDialog(
                 },
                 enabled = destinationName.trim().isNotEmpty() && destinationAddress.trim().isNotEmpty()
             ) {
-                Text("Luu")
+                Text("Lưu")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Huy")
+                Text("Hủy")
             }
         },
         title = {
-            Text("Them lo trinh moi")
+            Text("Thêm lộ trình mới")
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Loai dia diem", fontWeight = FontWeight.Medium)
+                Text("Loại địa điểm", fontWeight = FontWeight.Medium)
                 PlaceTypeSelector(
                     selectedType = placeType,
                     onSelected = { placeType = it }
@@ -149,7 +149,7 @@ private fun AddRouteDialog(
                 OutlinedTextField(
                     value = destinationName,
                     onValueChange = { destinationName = it },
-                    label = { Text("Ten noi den") },
+                    label = { Text("Tên nơi đến") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -157,8 +157,8 @@ private fun AddRouteDialog(
                 OutlinedTextField(
                     value = destinationAddress,
                     onValueChange = { destinationAddress = it },
-                    label = { Text("Dia diem den") },
-                    placeholder = { Text("VD: 54 Trieu Khuc, Thanh Xuan") },
+                    label = { Text("Địa điểm đến") },
+                    placeholder = { Text("VD: 54 Triều Khúc, Thanh Xuân") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -168,7 +168,7 @@ private fun AddRouteDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Gio di: $timeText", fontWeight = FontWeight.Medium)
+                    Text("Giờ đi: $timeText", fontWeight = FontWeight.Medium)
                     TextButton(
                         onClick = {
                             TimePickerDialog(
@@ -183,11 +183,11 @@ private fun AddRouteDialog(
                             ).show()
                         }
                     ) {
-                        Text("Doi gio")
+                        Text("Đổi giờ")
                     }
                 }
 
-                Text("Di nhung thu nao", fontWeight = FontWeight.Medium)
+                Text("Đi những thứ nào", fontWeight = FontWeight.Medium)
                 RepeatDaysRow(
                     selectedDays = selectedDays,
                     onToggle = { day ->
@@ -211,13 +211,13 @@ private fun RoutesHeader(onAdd: () -> Unit) {
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Lich trinh",
+                text = "Lộ trình",
                 style = MaterialTheme.typography.headlineLarge,
                 color = TextWhite,
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "Dat gio xuat phat va quan ly lich trinh di chuyen",
+                text = "Đặt giờ xuất phát và quản lý lịch trình di chuyển",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
@@ -232,7 +232,7 @@ private fun RoutesHeader(onAdd: () -> Unit) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Them lich",
+                    contentDescription = "Thêm lịch",
                     tint = Color.Black,
                     modifier = Modifier.size(24.dp)
                 )
@@ -293,7 +293,7 @@ private fun ScheduleEditorCard(
                         nameText = it
                         onChangeName(it)
                     },
-                    label = { Text("Ten noi den", color = TextSecondary) },
+                    label = { Text("Tên nơi đến", color = TextSecondary) },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -317,7 +317,7 @@ private fun ScheduleEditorCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Text("Loai dia diem", color = TextSecondary, style = MaterialTheme.typography.labelMedium)
+            Text("Loại địa điểm", color = TextSecondary, style = MaterialTheme.typography.labelMedium)
             Spacer(modifier = Modifier.height(6.dp))
             PlaceTypeSelector(
                 selectedType = schedule.placeType,
@@ -332,8 +332,8 @@ private fun ScheduleEditorCard(
                     destinationAddressText = it
                     onChangeDestinationAddress(it)
                 },
-                label = { Text("Dia diem den", color = TextSecondary) },
-                placeholder = { Text("VD: 54 Trieu Khuc, Thanh Xuan", color = TextTertiary) },
+                label = { Text("Địa điểm đến", color = TextSecondary) },
+                placeholder = { Text("VD: 54 Triều Khúc, Thanh Xuân", color = TextTertiary) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -400,7 +400,7 @@ private fun ScheduleEditorCard(
                 ) {
                     Icon(Icons.Default.AccessTime, null, tint = PrimaryAmber)
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Doi gio", color = TextWhite)
+                    Text("Đổi giờ", color = TextWhite)
                 }
 
                 if (canDelete) {
@@ -412,7 +412,7 @@ private fun ScheduleEditorCard(
                     ) {
                         Icon(Icons.Default.Delete, null, tint = Color(0xFFFFB7B7))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Xoa", color = Color(0xFFFFDADA))
+                        Text("Xóa", color = Color(0xFFFFDADA))
                     }
                 }
             }
@@ -420,7 +420,7 @@ private fun ScheduleEditorCard(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "Lap lai",
+                text = "Lặp lại",
                 style = MaterialTheme.typography.titleMedium,
                 color = TextWhite,
                 fontWeight = FontWeight.Bold
@@ -434,9 +434,9 @@ private fun ScheduleEditorCard(
             Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = if (schedule.destinationAddress.isBlank()) {
-                    "Lich trinh theo gio da dat. Ban nen them dia diem den de quan ly ro rang hon."
+                    "Lịch trình theo giờ đã đặt. Bạn nên thêm địa điểm đến để quản lý rõ ràng hơn."
                 } else {
-                    "Diem den: ${schedule.destinationAddress}. Lich trinh theo gio da dat."
+                    "Điểm đến: ${schedule.destinationAddress}. Lịch trình theo giờ đã đặt."
                 },
                 style = MaterialTheme.typography.labelMedium,
                 color = TextSecondary)
@@ -451,9 +451,9 @@ private fun PlaceTypeSelector(
     onSelected: (RoutePlaceType) -> Unit
 ) {
     val options = listOf(
-        RoutePlaceType.HOME to "Nha",
-        RoutePlaceType.WORK to "Co quan",
-        RoutePlaceType.OTHER to "Khac"
+        RoutePlaceType.HOME to "Nhà",
+        RoutePlaceType.WORK to "Cơ quan",
+        RoutePlaceType.OTHER to "Khác"
     )
 
     Row(
@@ -555,17 +555,17 @@ private fun AlertRuleCard() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Route, null, tint = PrimaryAmber)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Thong tin lo trinh", color = TextWhite, fontWeight = FontWeight.Bold)
+                Text("Thông tin lộ trình", color = TextWhite, fontWeight = FontWeight.Bold)
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Lich trinh luu thong tin diem den, gio di va ngay di lap lai.",
+                text = "Lộ trình lưu thông tin điểm đến, giờ đi và ngày đi lặp lại.",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Tinh nang du doan va canh bao tac duong da duoc tat.",
+                text = "Tính năng cảnh báo tắc đường trước giờ đi 30 phút đang được bật.",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
             )

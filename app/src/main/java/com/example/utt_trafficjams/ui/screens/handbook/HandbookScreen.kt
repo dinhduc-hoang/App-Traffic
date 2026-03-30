@@ -1,15 +1,37 @@
 package com.example.utt_trafficjams.ui.screens.handbook
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TwoWheeler
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,87 +41,82 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.utt_trafficjams.data.model.HandbookFaqItem
 import com.example.utt_trafficjams.ui.components.UTTTopBar
-import com.example.utt_trafficjams.ui.theme.*
-
-// ==============================
-// MÀN HÌNH CẨM NANG - Traffic Handbook
-// Gồm: TopBar, Title, Search, PenaltyGrid,
-//       FAQ Section, AI Search, ProTip Banner
-// ==============================
+import com.example.utt_trafficjams.ui.theme.CardDark
+import com.example.utt_trafficjams.ui.theme.CardDarkLight
+import com.example.utt_trafficjams.ui.theme.DarkBackground
+import com.example.utt_trafficjams.ui.theme.PrimaryAmber
+import com.example.utt_trafficjams.ui.theme.ProTipEnd
+import com.example.utt_trafficjams.ui.theme.ProTipStart
+import com.example.utt_trafficjams.ui.theme.TextSecondary
+import com.example.utt_trafficjams.ui.theme.TextTertiary
+import com.example.utt_trafficjams.ui.theme.TextWhite
 
 @Composable
-fun HandbookScreen() {
+fun HandbookScreen(vm: HandbookViewModel = viewModel()) {
+    val searchQuery by vm.searchQuery.collectAsState()
+    val faqItems by vm.faqItems.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
             .verticalScroll(rememberScrollState())
     ) {
-        // Top Bar
         UTTTopBar(subtitle = null, showSettings = false)
 
-        // — Tiêu đề "Traffic Handbook"
         HandbookHeader()
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // — Thanh tìm kiếm
-        SearchBar()
+        SearchBar(
+            query = searchQuery,
+            onQueryChange = vm::updateSearchQuery
+        )
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // — Grid thể loại mức phạt (Xe máy, Ô tô)
         PenaltyCategoryGrid()
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // — Section "Câu hỏi phổ biến" + danh sách FAQ
-        FAQSection()
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // — Card "Hỏi AI về luật giao thông"
-        AISearchCard()
+        FAQSection(
+            faqItems = faqItems,
+            searchQuery = searchQuery
+        )
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // — Banner "Pro Tip"
         ProTipBanner()
 
         Spacer(modifier = Modifier.height(100.dp))
     }
 }
 
-// ==============================
-// Header: "Traffic Handbook" + subtitle
-// ==============================
 @Composable
 private fun HandbookHeader() {
-    Column(
-        modifier = Modifier.padding(horizontal = 16.dp)
-    ) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         Text(
-            text = "Traffic Handbook",
+            text = "Cẩm nang pháp luật",
             style = MaterialTheme.typography.headlineLarge,
             color = TextWhite,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Look Up Laws & Penalties",
+            text = "Tra cứu mức phạt và căn cứ pháp lý mới nhất",
             style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary
         )
     }
 }
 
-// ==============================
-// Thanh tìm kiếm "Search for laws or penalties..."
-// ==============================
 @Composable
-private fun SearchBar() {
-    var searchQuery by remember { mutableStateOf("") }
-
+private fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit
+) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -118,21 +135,32 @@ private fun SearchBar() {
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(10.dp))
-            if (searchQuery.isEmpty()) {
-                Text(
-                    text = "Search for laws or penalties...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextTertiary
+            TextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.weight(1f),
+                placeholder = {
+                    Text(
+                        text = "Tìm hành vi vi phạm hoặc mức phạt...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextTertiary
+                    )
+                },
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = TextWhite),
+                singleLine = true,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = PrimaryAmber
                 )
-            }
+            )
         }
     }
 }
 
-// ==============================
-// Grid thể loại mức phạt (2 cột)
-// "Mức phạt Xe máy" | "Mức phạt Ô tô"
-// ==============================
 @Composable
 private fun PenaltyCategoryGrid() {
     Row(
@@ -143,23 +171,19 @@ private fun PenaltyCategoryGrid() {
     ) {
         PenaltyCategoryCard(
             icon = Icons.Default.TwoWheeler,
-            title = "Mức phạt Xe máy",
-            subtitle = "Motorbike Penalties",
+            title = "Mức phạt xe máy",
+            subtitle = "Vi phạm phổ biến",
             modifier = Modifier.weight(1f)
         )
         PenaltyCategoryCard(
             icon = Icons.Default.DirectionsCar,
-            title = "Mức phạt Ô tô",
-            subtitle = "Car Penalties",
+            title = "Mức phạt ô tô",
+            subtitle = "Vi phạm phổ biến",
             modifier = Modifier.weight(1f)
         )
     }
 }
 
-// ==============================
-// Card thể loại mức phạt (reusable)
-// Icon amber + title + subtitle
-// ==============================
 @Composable
 private fun PenaltyCategoryCard(
     icon: ImageVector,
@@ -178,7 +202,6 @@ private fun PenaltyCategoryCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Icon trong vòng tròn
             Box(
                 modifier = Modifier
                     .size(44.dp)
@@ -212,14 +235,12 @@ private fun PenaltyCategoryCard(
     }
 }
 
-// ==============================
-// Section "Câu hỏi phổ biến"
-// Header + 3 FAQ items
-// ==============================
 @Composable
-private fun FAQSection() {
+private fun FAQSection(
+    faqItems: List<HandbookFaqItem>,
+    searchQuery: String
+) {
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-        // Header: "Câu hỏi phổ biến" + "Xem tất cả"
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -231,7 +252,7 @@ private fun FAQSection() {
                 color = TextWhite,
                 fontWeight = FontWeight.Bold
             )
-            TextButton(onClick = { /* TODO */ }) {
+            TextButton(onClick = { }) {
                 Text(
                     text = "Xem tất cả",
                     style = MaterialTheme.typography.labelLarge,
@@ -242,26 +263,34 @@ private fun FAQSection() {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // FAQ items
-        FAQItem(question = "Vượt đèn đỏ phạt bao nhiêu?")
-        Spacer(modifier = Modifier.height(8.dp))
-        FAQItem(question = "Không đội mũ bảo hiểm?")
-        Spacer(modifier = Modifier.height(8.dp))
-        FAQItem(question = "Sử dụng điện thoại khi lái xe?")
+        if (faqItems.isEmpty()) {
+            Text(
+                text = if (searchQuery.isBlank()) {
+                    "Chưa có dữ liệu cẩm nang để hiển thị."
+                } else {
+                    "Không tìm thấy mục phù hợp. Hãy thử từ khóa khác."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+        } else {
+            faqItems.forEachIndexed { index, item ->
+                FAQItem(item = item)
+                if (index < faqItems.lastIndex) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
     }
 }
 
-// ==============================
-// Item câu hỏi FAQ (reusable)
-// Viền vàng bên trái + text + chevron
-// ==============================
 @Composable
-private fun FAQItem(question: String) {
+private fun FAQItem(item: HandbookFaqItem) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = CardDark),
-        onClick = { /* TODO */ }
+        onClick = { }
     ) {
         Row(
             modifier = Modifier
@@ -269,7 +298,6 @@ private fun FAQItem(question: String) {
                 .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Thanh vàng bên trái (accent bar)
             Box(
                 modifier = Modifier
                     .width(4.dp)
@@ -280,12 +308,25 @@ private fun FAQItem(question: String) {
 
             Spacer(modifier = Modifier.width(14.dp))
 
-            Text(
-                text = question,
-                style = MaterialTheme.typography.bodyLarge,
-                color = TextWhite,
-                modifier = Modifier.weight(1f)
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.question,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = TextWhite
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Căn cứ: ${item.legalReference}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = item.summary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary.copy(alpha = 0.9f)
+                )
+            }
 
             Icon(
                 imageVector = Icons.Default.ChevronRight,
@@ -297,101 +338,6 @@ private fun FAQItem(question: String) {
     }
 }
 
-// ==============================
-// Card "Hỏi AI về luật giao thông"
-// Icon sparkle + title + subtitle + input
-// ==============================
-@Composable
-private fun AISearchCard() {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Sparkle icon
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(PrimaryAmber.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = PrimaryAmber,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column {
-                    Text(
-                        text = "Hỏi AI về luật giao thông",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = TextWhite,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Instant AI support for traffic regulations",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Input field "Hỏi AI..."
-            Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = CardDarkLight
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Hỏi AI...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextTertiary,
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    // Send button
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(PrimaryAmber),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = "Gửi",
-                            tint = Color.Black,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ==============================
-// Banner "PRO TIP"
-// Nền gradient xanh lam đậm + icon + text
-// ==============================
 @Composable
 private fun ProTipBanner() {
     Card(
@@ -413,9 +359,8 @@ private fun ProTipBanner() {
                 .padding(20.dp)
         ) {
             Column {
-                // "LUẬT THÔNG HÀNH GIO MỚI MỚI!!!" header
                 Text(
-                    text = "LUẬT GIAO THÔNG MỚI NHẤT!!!",
+                    text = "CẬP NHẬT CĂN CỨ PHÁP LÝ",
                     style = MaterialTheme.typography.labelSmall,
                     color = TextWhite.copy(alpha = 0.7f),
                     letterSpacing = 1.sp
@@ -423,13 +368,12 @@ private fun ProTipBanner() {
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // PRO TIP label
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = PrimaryAmber
                 ) {
                     Text(
-                        text = "PRO TIP",
+                        text = "LƯU Ý",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.Black,
                         fontWeight = FontWeight.Bold,
@@ -439,9 +383,8 @@ private fun ProTipBanner() {
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Tip content
                 Text(
-                    text = "Luôn mang theo giấy tờ xe bản gốc hoặc bản sao có chứng thực khi tham gia giao thông.",
+                    text = "Ưu tiên đối chiếu hiệu lực văn bản trước khi áp mức phạt; khi cần, xem thêm điều/khoản tương ứng trong nghị định hiện hành.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextWhite.copy(alpha = 0.9f),
                     lineHeight = 22.sp

@@ -50,6 +50,20 @@ android {
             .replace("\"", "\\\"")
         buildConfigField("String", "MAPS_API_KEY", "\"$escapedMapsKey\"")
         manifestPlaceholders["MAPS_API_KEY"] = mapsKey
+
+        // Đọc Mapbox Access Token từ local.properties
+        val mapboxKey = (
+            localProps.getProperty("MAPBOX_API_KEY")
+                ?: localProps.getProperty("MAPBOX_ACCESS_TOKEN")
+                ?: System.getenv("MAPBOX_API_KEY")
+                ?: System.getenv("MAPBOX_ACCESS_TOKEN")
+                ?: ""
+            ).trim()
+        val escapedMapboxKey = mapboxKey
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        buildConfigField("String", "MAPBOX_API_KEY", "\"$escapedMapboxKey\"")
+
     }
 
     buildTypes {

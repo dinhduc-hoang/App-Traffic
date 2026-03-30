@@ -33,7 +33,7 @@ class RoutesViewModel(application: Application) : AndroidViewModel(application) 
         val now = Calendar.getInstance()
         val item = TrafficSchedule(
             id = UUID.randomUUID().toString(),
-            actionName = "Lich moi",
+            actionName = "Lịch mới",
             placeType = RoutePlaceType.OTHER,
             destinationAddress = "",
             hour = now.get(Calendar.HOUR_OF_DAY),
@@ -51,7 +51,7 @@ class RoutesViewModel(application: Application) : AndroidViewModel(application) 
         daysOfWeek: Set<Int>
     ) {
         viewModelScope.launch {
-            val normalizedName = destinationName.trim().ifEmpty { "Lich moi" }
+            val normalizedName = destinationName.trim().ifEmpty { "Lịch mới" }
             val normalizedAddress = destinationAddress.trim()
             val resolvedPlaceType = if (placeType == RoutePlaceType.OTHER) {
                 inferPlaceTypeFromText(normalizedName, normalizedAddress)
@@ -91,7 +91,7 @@ class RoutesViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun updateActionName(id: String, value: String) {
-        val normalized = value.trim().ifEmpty { "Lich trinh" }
+        val normalized = value.trim().ifEmpty { "Lịch trình" }
         persist(_schedules.value.map {
             if (it.id == id) {
                 val inferredType = inferPlaceTypeFromText(normalized, it.destinationAddress)
@@ -175,14 +175,20 @@ class RoutesViewModel(application: Application) : AndroidViewModel(application) 
     private fun inferPlaceTypeFromText(name: String, address: String): RoutePlaceType {
         val content = (name + " " + address).lowercase(Locale.getDefault())
         return when {
-            content.contains("nha") || content.contains("home") || content.contains("ve nha") -> RoutePlaceType.HOME
+            content.contains("nha") || content.contains("nhà") || content.contains("home") || content.contains("ve nha") || content.contains("về nhà") -> RoutePlaceType.HOME
             content.contains("co quan") ||
+                content.contains("cơ quan") ||
                 content.contains("cong ty") ||
+                content.contains("công ty") ||
                 content.contains("van phong") ||
+                content.contains("văn phòng") ||
                 content.contains("work") ||
                 content.contains("truong") ||
+                content.contains("trường") ||
                 content.contains("di hoc") ||
-                content.contains("hoc") -> RoutePlaceType.WORK
+                content.contains("đi học") ||
+                content.contains("hoc") ||
+                content.contains("học") -> RoutePlaceType.WORK
             else -> RoutePlaceType.OTHER
         }
     }

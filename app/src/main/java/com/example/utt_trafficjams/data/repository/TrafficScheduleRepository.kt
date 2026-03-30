@@ -3,6 +3,7 @@ package com.example.utt_trafficjams.data.repository
 import android.content.Context
 import com.example.utt_trafficjams.data.model.RoutePlaceType
 import com.example.utt_trafficjams.data.model.TrafficSchedule
+import com.example.utt_trafficjams.notifications.TrafficAlertScheduler
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
@@ -16,7 +17,8 @@ class TrafficScheduleRepository(context: Context) {
         private const val KEY_SCHEDULES = "schedules_json"
     }
 
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun getSchedules(): List<TrafficSchedule> {
         val raw = prefs.getString(KEY_SCHEDULES, null)
@@ -57,6 +59,7 @@ class TrafficScheduleRepository(context: Context) {
         }
 
         prefs.edit().putString(KEY_SCHEDULES, arr.toString()).apply()
+        TrafficAlertScheduler(appContext).rescheduleAll(schedules)
     }
 
     private fun parseSchedules(raw: String): List<TrafficSchedule> {
@@ -137,15 +140,15 @@ class TrafficScheduleRepository(context: Context) {
                 id = UUID.randomUUID().toString(),
                 actionName = "Đi làm",
                 placeType = RoutePlaceType.WORK,
-                destinationAddress = "Co quan",
+                destinationAddress = "Cơ quan",
                 hour = 7,
                 minute = 30
             ),
             TrafficSchedule(
                 id = UUID.randomUUID().toString(),
-                actionName = "Tan làm",
+                actionName = "Về nhà",
                 placeType = RoutePlaceType.HOME,
-                destinationAddress = "Nha",
+                destinationAddress = "Nhà",
                 hour = 17,
                 minute = 0
             )

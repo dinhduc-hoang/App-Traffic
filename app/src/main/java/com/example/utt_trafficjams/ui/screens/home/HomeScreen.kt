@@ -1,6 +1,7 @@
 package com.example.utt_trafficjams.ui.screens.home
 
 import android.Manifest
+import android.os.Build
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -61,7 +62,10 @@ import java.util.*
 // ==============================
 
 @Composable
-fun HomeScreen(vm: HomeViewModel = viewModel()) {
+fun HomeScreen(
+    vm: HomeViewModel = viewModel(),
+    forceChatToken: Int = 0
+) {
     val context       = LocalContext.current
     val messages      by vm.messages.collectAsState()
     val isLoading     by vm.isLoading.collectAsState()
@@ -70,6 +74,8 @@ fun HomeScreen(vm: HomeViewModel = viewModel()) {
 
     var selectedTab   by remember { mutableStateOf(0) } // 0=Map, 1=Chat
     var inputText     by remember { mutableStateOf("") }
+    var hasRequestedInitialLocationPermission by remember { mutableStateOf(false) }
+    var hasRequestedNotificationPermission by remember { mutableStateOf(false) }
     val listState     = rememberLazyListState()
     val scope         = rememberCoroutineScope()
 
@@ -79,6 +85,22 @@ fun HomeScreen(vm: HomeViewModel = viewModel()) {
     ) { granted ->
         if (granted) vm.toggleListening()
     }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grantedMap ->
+        val granted =
+            grantedMap[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                grantedMap[Manifest.permission.ACCESS_COARSE_LOCATION] == true ||
+                context.hasMapLocationPermission()
+        if (granted) {
+            vm.refreshCurrentLocationForAi()
+        }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
 
     // Auto-scroll khi tin mới đến
     LaunchedEffect(messages.size) {
@@ -98,6 +120,36 @@ fun HomeScreen(vm: HomeViewModel = viewModel()) {
         vm.openGoogleMapsRequests.collect { request ->
             openGoogleMapsNavigation(context, request)
             selectedTab = 0
+        }
+    }
+
+    LaunchedEffect(forceChatToken) {
+        if (forceChatToken > 0) {
+            selectedTab = 1
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (context.hasMapLocationPermission()) {
+            vm.refreshCurrentLocationForAi()
+        } else if (!hasRequestedInitialLocationPermission) {
+            hasRequestedInitialLocationPermission = true
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val shouldAsk = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !context.hasNotificationPermission() &&
+            !hasRequestedNotificationPermission
+        if (shouldAsk) {
+            hasRequestedNotificationPermission = true
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
@@ -1001,6 +1053,14 @@ private fun android.content.Context.hasMapLocationPermission(): Boolean {
     return fine || coarse
 }
 
+private fun android.content.Context.hasNotificationPermission(): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+    return ContextCompat.checkSelfPermission(
+        this,
+        Manifest.permission.POST_NOTIFICATIONS
+    ) == PackageManager.PERMISSION_GRANTED
+}
+
 private fun openGoogleMapsNavigation(context: Context, request: GoogleMapsLaunchRequest) {
     val mode = when (request.travelMode.trim().lowercase(Locale.US)) {
         "walking", "walk" -> "walking"
@@ -1031,7 +1091,7 @@ private fun openGoogleMapsNavigation(context: Context, request: GoogleMapsLaunch
     when {
         appIntent.resolveActivity(pm) != null -> context.startActivity(appIntent)
         webIntent.resolveActivity(pm) != null -> context.startActivity(webIntent)
-        else -> Toast.makeText(context, "Khong mo duoc Google Maps tren thiet bi nay", Toast.LENGTH_SHORT).show()
+        else -> Toast.makeText(context, "Không mở được Google Maps trên thiết bị này", Toast.LENGTH_SHORT).show()
     }
 }
 

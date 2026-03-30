@@ -20,10 +20,22 @@ import com.example.utt_trafficjams.ui.theme.DarkBackground
 // ==============================
 
 @Composable
-fun UTTTrafficApp() {
+fun UTTTrafficApp(openChatToken: Int = 0) {
     val navController = rememberNavController()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route ?: "home"
+
+    LaunchedEffect(openChatToken) {
+        if (openChatToken > 0) {
+            navController.navigate("home") {
+                popUpTo(navController.graph.startDestinationId) {
+                    saveState = true
+                }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
 
     Scaffold(
         containerColor = DarkBackground,
@@ -51,7 +63,7 @@ fun UTTTrafficApp() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable("home") {
-                HomeScreen()
+                HomeScreen(forceChatToken = openChatToken)
             }
             composable("routes") {
                 RoutesScreen()
