@@ -25,30 +25,70 @@ class TrafficAlertScheduler(context: Context) {
     }
 
     fun scheduleNextForSchedule(schedule: TrafficSchedule) {
+        cancelLegacyAlert(schedule.id)
+
         if (!schedule.enabled) {
             cancelSchedule(schedule.id)
             return
         }
 
-        val triggerAt = computeNextAlertMillis(schedule, System.currentTimeMillis()) ?: run {
+        val nowMs = System.currentTimeMillis()
+        val preTripTriggerAt = computeNextAlertMillis(schedule, nowMs, minutesBeforeTravel = 30)
+        val onTimeTriggerAt = computeNextAlertMillis(schedule, nowMs, minutesBeforeTravel = 0)
+
+        if (preTripTriggerAt == null && onTimeTriggerAt == null) {
             cancelSchedule(schedule.id)
             return
         }
 
-        val pendingIntent = buildPendingIntent(schedule.id)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        if (preTripTriggerAt != null) {
+            scheduleAlarm(
+                triggerAt = preTripTriggerAt,
+                pendingIntent = buildPendingIntent(schedule.id, ALERT_TYPE_PRE_TRIP)
+            )
         } else {
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+            cancelAlert(schedule.id, ALERT_TYPE_PRE_TRIP)
+        }
+
+        if (onTimeTriggerAt != null) {
+            scheduleAlarm(
+                triggerAt = onTimeTriggerAt,
+                pendingIntent = buildPendingIntent(schedule.id, ALERT_TYPE_ON_TIME)
+            )
+        } else {
+            cancelAlert(schedule.id, ALERT_TYPE_ON_TIME)
         }
     }
 
     fun cancelSchedule(scheduleId: String) {
-        alarmManager.cancel(buildPendingIntent(scheduleId))
+        cancelAlert(scheduleId, ALERT_TYPE_PRE_TRIP)
+        cancelAlert(scheduleId, ALERT_TYPE_ON_TIME)
+        cancelLegacyAlert(scheduleId)
     }
 
-    private fun buildPendingIntent(scheduleId: String): PendingIntent {
+    private fun cancelAlert(scheduleId: String, alertType: String) {
+        alarmManager.cancel(buildPendingIntent(scheduleId, alertType))
+    }
+
+    private fun cancelLegacyAlert(scheduleId: String) {
+        alarmManager.cancel(buildLegacyPendingIntent(scheduleId))
+    }
+
+    private fun buildPendingIntent(scheduleId: String, alertType: String): PendingIntent {
+        val intent = Intent(appContext, TrafficAlertReceiver::class.java).apply {
+            action = ACTION_CHECK_TRAFFIC_ALERT
+            putExtra(EXTRA_SCHEDULE_ID, scheduleId)
+            putExtra(EXTRA_ALERT_TYPE, alertType)
+        }
+        return PendingIntent.getBroadcast(
+            appContext,
+            buildRequestCode(scheduleId, alertType),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun buildLegacyPendingIntent(scheduleId: String): PendingIntent {
         val intent = Intent(appContext, TrafficAlertReceiver::class.java).apply {
             action = ACTION_CHECK_TRAFFIC_ALERT
             putExtra(EXTRA_SCHEDULE_ID, scheduleId)
@@ -61,7 +101,23 @@ class TrafficAlertScheduler(context: Context) {
         )
     }
 
-    private fun computeNextAlertMillis(schedule: TrafficSchedule, nowMs: Long): Long? {
+    private fun buildRequestCode(scheduleId: String, alertType: String): Int {
+        return "$scheduleId#$alertType".hashCode()
+    }
+
+    private fun scheduleAlarm(triggerAt: Long, pendingIntent: PendingIntent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        } else {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        }
+    }
+
+    private fun computeNextAlertMillis(
+        schedule: TrafficSchedule,
+        nowMs: Long,
+        minutesBeforeTravel: Int
+    ): Long? {
         if (schedule.daysOfWeek.isEmpty()) return null
 
         for (offset in 0..14) {
@@ -79,7 +135,7 @@ class TrafficAlertScheduler(context: Context) {
             }
 
             val alert = (travel.clone() as Calendar).apply {
-                add(Calendar.MINUTE, -30)
+                add(Calendar.MINUTE, -minutesBeforeTravel)
             }
 
             if (alert.timeInMillis > nowMs + 1_000L) {
@@ -112,6 +168,9 @@ class TrafficAlertScheduler(context: Context) {
     companion object {
         const val ACTION_CHECK_TRAFFIC_ALERT = "com.example.utt_trafficjams.action.CHECK_TRAFFIC_ALERT"
         const val EXTRA_SCHEDULE_ID = "extra_schedule_id"
+        const val EXTRA_ALERT_TYPE = "extra_alert_type"
+        const val ALERT_TYPE_PRE_TRIP = "pre_trip"
+        const val ALERT_TYPE_ON_TIME = "on_time"
 
         private const val PREFS_NAME = "traffic_alert_scheduler_prefs"
         private const val KEY_TRACKED_IDS = "tracked_schedule_ids"

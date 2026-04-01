@@ -10,8 +10,10 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -30,15 +32,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.utt_trafficjams.R
 import com.example.utt_trafficjams.data.model.ChatMessage
+import com.example.utt_trafficjams.data.model.HazardType
 import com.example.utt_trafficjams.ui.theme.*
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -76,6 +83,10 @@ fun HomeScreen(
     var inputText     by remember { mutableStateOf("") }
     var hasRequestedInitialLocationPermission by remember { mutableStateOf(false) }
     var hasRequestedNotificationPermission by remember { mutableStateOf(false) }
+    var showHazardDialog by remember { mutableStateOf(false) }
+    var selectedHazardType by remember { mutableStateOf(HazardType.FLOOD) }
+    var otherHazardText by remember { mutableStateOf("") }
+    var pendingChatHoldMicPermission by remember { mutableStateOf(false) }
     val listState     = rememberLazyListState()
     val scope         = rememberCoroutineScope()
 
@@ -83,7 +94,15 @@ fun HomeScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) vm.toggleListening()
+        if (granted) {
+            if (pendingChatHoldMicPermission) {
+                pendingChatHoldMicPermission = false
+            } else {
+                vm.toggleListening()
+            }
+        } else {
+            pendingChatHoldMicPermission = false
+        }
     }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -120,6 +139,12 @@ fun HomeScreen(
         vm.openGoogleMapsRequests.collect { request ->
             openGoogleMapsNavigation(context, request)
             selectedTab = 0
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        vm.uiEvents.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -178,6 +203,11 @@ fun HomeScreen(
                 onLocationUpdated = { latLng ->
                     vm.updateCurrentLocationFromMap(latLng.latitude, latLng.longitude)
                 },
+                onHazardClick = {
+                    selectedHazardType = HazardType.FLOOD
+                    otherHazardText = ""
+                    showHazardDialog = true
+                },
                 onVoiceClick = {
                     val hasPerm = ContextCompat.checkSelfPermission(
                         context, Manifest.permission.RECORD_AUDIO
@@ -186,6 +216,7 @@ fun HomeScreen(
                         selectedTab = 1
                         if (!isListening) vm.toggleListening()
                     } else {
+                        pendingChatHoldMicPermission = false
                         permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 }
@@ -202,18 +233,39 @@ fun HomeScreen(
                     vm.sendMessage(inputText)
                     inputText = ""
                 },
-                onMicClick = {
+                onMicPress = {
                     val hasPerm = ContextCompat.checkSelfPermission(
                         context, Manifest.permission.RECORD_AUDIO
                     ) == PackageManager.PERMISSION_GRANTED
                     if (hasPerm) {
-                        vm.toggleListening()
+                        vm.startListening()
                     } else {
+                        pendingChatHoldMicPermission = true
                         permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
+                },
+                onMicRelease = {
+                    vm.stopListening()
                 }
             )
         }
+    }
+
+    if (showHazardDialog) {
+        HazardReportDialog(
+            selectedType = selectedHazardType,
+            otherIssue = otherHazardText,
+            onTypeChanged = { selectedHazardType = it },
+            onOtherIssueChanged = { otherHazardText = it },
+            onDismiss = { showHazardDialog = false },
+            onConfirm = {
+                vm.reportHazardAtCurrentLocation(
+                    type = selectedHazardType,
+                    customIssue = otherHazardText
+                )
+                showHazardDialog = false
+            }
+        )
     }
 }
 
@@ -229,9 +281,19 @@ private fun HomeAppBar(chatReady: Boolean, isListening: Boolean) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.size(36.dp).clip(CircleShape).background(PrimaryAmber),
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(PrimaryAmber),
             contentAlignment = Alignment.Center
-        ) { Text("🚦", fontSize = 18.sp) }
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.logo),
+                contentDescription = "Logo ứng dụng",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         Spacer(Modifier.width(10.dp))
 
@@ -342,6 +404,7 @@ private fun TabItem(
 private fun MapTab(
     onChatClick : () -> Unit,
     onLocationUpdated: (LatLng) -> Unit,
+    onHazardClick: () -> Unit,
     onVoiceClick: () -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -369,7 +432,10 @@ private fun MapTab(
         Spacer(Modifier.height(12.dp))
 
         // Map Card
-        TrafficMapCard(onLocationUpdated = onLocationUpdated)
+        TrafficMapCard(
+            onLocationUpdated = onLocationUpdated,
+            onReportClick = onHazardClick
+        )
 
         Spacer(Modifier.height(20.dp))
 
@@ -424,7 +490,13 @@ private fun MapTab(
             modifier              = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            QuickActionCard(Icons.Default.Warning, "Cảnh Báo",  "Điểm nóng giao thông", Modifier.weight(1f))
+            QuickActionCard(
+                icon = Icons.Default.Warning,
+                title = "Cảnh Báo",
+                subtitle = "Báo cáo điểm nguy hiểm",
+                modifier = Modifier.weight(1f),
+                onClick = onHazardClick
+            )
             QuickActionCard(Icons.Default.Person,  "Cá Nhân",   "Lịch trình di chuyển", Modifier.weight(1f))
         }
 
@@ -446,7 +518,8 @@ private fun ChatTab(
     inputText     : String,
     onInputChange : (String) -> Unit,
     onSend        : () -> Unit,
-    onMicClick    : () -> Unit
+    onMicPress    : () -> Unit,
+    onMicRelease  : () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
 
@@ -494,7 +567,8 @@ private fun ChatTab(
             onInputChange = onInputChange,
             isListening = isListening,
             onSend      = onSend,
-            onMicClick  = onMicClick
+            onMicPress  = onMicPress,
+            onMicRelease = onMicRelease
         )
     }
 }
@@ -598,7 +672,8 @@ private fun ChatInputRow(
     onInputChange: (String) -> Unit,
     isListening  : Boolean,
     onSend       : () -> Unit,
-    onMicClick   : () -> Unit
+    onMicPress   : () -> Unit,
+    onMicRelease : () -> Unit
 ) {
     // Mic pulse animation
     val infiniteTransition = rememberInfiniteTransition(label = "mic_pulse")
@@ -639,12 +714,23 @@ private fun ChatInputRow(
                     .background(
                         if (isListening) StatusRed else CardDark
                     )
-                    .clickable { onMicClick() },
+                    .pointerInput(onMicPress, onMicRelease) {
+                        detectTapGestures(
+                            onPress = {
+                                onMicPress()
+                                try {
+                                    tryAwaitRelease()
+                                } finally {
+                                    onMicRelease()
+                                }
+                            }
+                        )
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
-                    contentDescription = if (isListening) "Dừng ghi âm" else "Ghi âm giọng nói",
+                    contentDescription = if (isListening) "Thả để dừng" else "Giữ để nói",
                     tint     = if (isListening) Color.White else PrimaryAmber,
                     modifier = Modifier.size(26.dp)
                 )
@@ -857,7 +943,10 @@ private fun TypingIndicator() {
 // Map Card (Tab Bản đồ)
 // ==============================
 @Composable
-private fun TrafficMapCard(onLocationUpdated: (LatLng) -> Unit) {
+private fun TrafficMapCard(
+    onLocationUpdated: (LatLng) -> Unit,
+    onReportClick: () -> Unit
+) {
     val context = LocalContext.current
     val hanoi = remember { LatLng(21.0278, 105.8342) }
     var hasLocationPermission by remember {
@@ -968,7 +1057,7 @@ private fun TrafficMapCard(onLocationUpdated: (LatLng) -> Unit) {
             )
 
             Button(
-                onClick        = {},
+                onClick        = onReportClick,
                 modifier       = Modifier.align(Alignment.BottomStart).padding(12.dp),
                 shape          = RoundedCornerShape(24.dp),
                 colors         = ButtonDefaults.buttonColors(containerColor = StatusRed),
@@ -1145,10 +1234,13 @@ private fun QuickActionCard(
     icon    : ImageVector,
     title   : String,
     subtitle: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
 ) {
     Card(
-        modifier = modifier,
+        modifier = modifier.then(
+            if (onClick != null) Modifier.clickable { onClick() } else Modifier
+        ),
         shape    = RoundedCornerShape(14.dp),
         colors   = CardDefaults.cardColors(containerColor = CardDark)
     ) {
@@ -1160,4 +1252,81 @@ private fun QuickActionCard(
             Text(subtitle, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
         }
     }
+}
+
+@Composable
+private fun HazardReportDialog(
+    selectedType: HazardType,
+    otherIssue: String,
+    onTypeChanged: (HazardType) -> Unit,
+    onOtherIssueChanged: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val canSubmit = selectedType != HazardType.OTHER || otherIssue.trim().isNotBlank()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Chọn loại cảnh báo",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                HazardType.values().forEach { hazardType ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onTypeChanged(hazardType) }
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedType == hazardType,
+                            onClick = { onTypeChanged(hazardType) }
+                        )
+                        Text(
+                            text = hazardType.displayName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextWhite
+                        )
+                    }
+                }
+
+                if (selectedType == HazardType.OTHER) {
+                    OutlinedTextField(
+                        value = otherIssue,
+                        onValueChange = onOtherIssueChanged,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Mô tả cảnh báo") },
+                        placeholder = { Text("VD: Cây đổ chắn đường") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = PrimaryAmber,
+                            unfocusedBorderColor = CardDarkLighter,
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite,
+                            cursorColor = PrimaryAmber
+                        )
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = canSubmit,
+                onClick = onConfirm
+            ) {
+                Text("Lưu cảnh báo")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Hủy")
+            }
+        }
+    )
 }

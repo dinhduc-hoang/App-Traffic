@@ -16,12 +16,17 @@ import com.example.utt_trafficjams.ai.AudioRecorder
 import com.example.utt_trafficjams.ai.GeminiLiveSession
 import com.example.utt_trafficjams.ai.LiveAddressContext
 import com.example.utt_trafficjams.ai.MapboxDirectionsTrafficToolService
+import com.example.utt_trafficjams.ai.RouteHazardInspector
 import com.example.utt_trafficjams.ai.TrafficAlternativeRoute
 import com.example.utt_trafficjams.ai.TrafficToolRequest
 import com.example.utt_trafficjams.data.model.ChatMessage
+import com.example.utt_trafficjams.data.model.HazardReport
+import com.example.utt_trafficjams.data.model.HazardType
+import com.example.utt_trafficjams.data.model.RouteHazardCheckResult
 import com.example.utt_trafficjams.data.model.RoutePlaceType
 import com.example.utt_trafficjams.data.model.TrafficSchedule
 import com.example.utt_trafficjams.data.repository.ChatRepository
+import com.example.utt_trafficjams.data.repository.HazardReportRepository
 import com.example.utt_trafficjams.data.repository.TrafficScheduleRepository
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -36,6 +41,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.text.Normalizer
+import java.util.UUID
 import java.util.Locale
 
 data class GoogleMapsLaunchRequest(
@@ -48,7 +54,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = ChatRepository()
     private val scheduleRepository = TrafficScheduleRepository(getApplication())
+    private val hazardRepository = HazardReportRepository(getApplication())
     private val trafficToolService = MapboxDirectionsTrafficToolService(
+        accessToken = BuildConfig.MAPBOX_API_KEY
+    )
+    private val routeHazardInspector = RouteHazardInspector(
         accessToken = BuildConfig.MAPBOX_API_KEY
     )
     private val fusedLocationClient by lazy {
@@ -72,6 +82,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val openGoogleMapsRequests: SharedFlow<GoogleMapsLaunchRequest> = _openGoogleMapsRequests
+
+    private val _uiEvents = MutableSharedFlow<String>(
+        extraBufferCapacity = 8,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val uiEvents: SharedFlow<String> = _uiEvents
 
     // Gemini Live
     private var geminiSession: GeminiLiveSession? = null
@@ -176,6 +192,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         travelMode = travelMode
                     )
                 )
+            },
+            onInspectRouteHazards = { origin, destination ->
+                inspectRouteHazardsForAi(origin, destination)
             }
         )
     }
@@ -258,7 +277,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun startListening() {
+    fun startListening() {
         if (_isListening.value) return
         _isListening.value = true
         if (geminiSession?.state?.value != GeminiLiveSession.State.CONNECTED) {
@@ -269,7 +288,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         audioRecorder?.startRecording(viewModelScope)
     }
 
-    private fun stopListening() {
+    fun stopListening() {
+        if (!_isListening.value) return
         _isListening.value = false
         lastAiAudioAtMs = 0L
         audioRecorder?.stopRecording()
@@ -299,6 +319,39 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         latestCurrentLocationWallTimeMs = System.currentTimeMillis()
     }
 
+    fun reportHazardAtCurrentLocation(type: HazardType, customIssue: String?) {
+        viewModelScope.launch {
+            val normalizedCustom = customIssue?.trim().orEmpty()
+            if (type == HazardType.OTHER && normalizedCustom.isBlank()) {
+                _uiEvents.tryEmit("Vui lòng nhập mô tả cho mục Khác.")
+                return@launch
+            }
+
+            val current = resolveCurrentLocationForHazardReport()
+            if (current == null) {
+                _uiEvents.tryEmit("Không lấy được vị trí hiện tại để lưu cảnh báo.")
+                return@launch
+            }
+
+            val report = HazardReport(
+                id = UUID.randomUUID().toString(),
+                type = type,
+                customIssue = normalizedCustom.ifBlank { null },
+                lat = current.first,
+                lng = current.second,
+                createdAtMs = System.currentTimeMillis()
+            )
+            hazardRepository.addReport(report)
+
+            val label = if (type == HazardType.OTHER) {
+                normalizedCustom
+            } else {
+                type.displayName
+            }
+            _uiEvents.tryEmit("Đã lưu cảnh báo: $label")
+        }
+    }
+
     private fun getFreshCachedLocationOrNull(): Pair<Double, Double>? {
         val updatedAt = latestCurrentLocationUpdatedAtMs
         if (updatedAt <= 0L) return null
@@ -308,6 +361,44 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun getAnyCachedLocationOrNull(): Pair<Double, Double>? {
         return latestCurrentLocationLatLng
+    }
+
+    private suspend fun resolveCurrentLocationForHazardReport(): Pair<Double, Double>? {
+        val current = if (hasLocationPermission() && isLocationServiceEnabled()) {
+            getCurrentLocationLatLng()
+        } else {
+            null
+        }
+        return current ?: getFreshCachedLocationOrNull() ?: getAnyCachedLocationOrNull()
+    }
+
+    private suspend fun inspectRouteHazardsForAi(origin: String?, destination: String): RouteHazardCheckResult {
+        val reports = hazardRepository.getReports()
+        if (reports.isEmpty()) {
+            return RouteHazardCheckResult(
+                hasHazardAlerts = false,
+                source = "hazard_local",
+                sourceNote = "no_hazard_reports"
+            )
+        }
+
+        val originForInspection = origin?.trim().takeUnless { it.isNullOrBlank() }
+            ?: latestCurrentLocationText
+            ?: resolveCurrentLocationContextForAllRequests(preferred = null)
+
+        if (originForInspection.isBlank() || originForInspection.startsWith("không có")) {
+            return RouteHazardCheckResult(
+                hasHazardAlerts = false,
+                source = "hazard_route",
+                sourceNote = "origin_unavailable"
+            )
+        }
+
+        return routeHazardInspector.inspectRoute(
+            origin = originForInspection,
+            destination = destination,
+            reports = reports
+        )
     }
 
     private suspend fun resolveCurrentLocationContextForAllRequests(preferred: Pair<Double, Double>?): String {
@@ -387,18 +478,24 @@ $basePrompt
 
         val asksHome = containsAnyNormalized(
             norm,
-            listOf("về nhà", "đường về nhà", "nhà", "home", "trở về nhà", "về đến nhà", "nơi ở")
+            listOf(
+                "về nhà", "đường về nhà", "nhà", "home", "trở về nhà", "về đến nhà", "nơi ở",
+                "trọ", "tro", "phòng trọ", "phong tro", "ký túc xá", "ky tuc xa", "chỗ ở", "cho o"
+            )
         )
+        val asksSchool = isSchoolRelatedQuery(norm)
         val asksWork = containsAnyNormalized(
             norm,
-            listOf("đi làm", "đến công ty", "đến trường", "work", "đi học", "cơ quan", "văn phòng", "nơi làm")
+            listOf(
+                "đi làm", "đến công ty", "work", "cơ quan", "văn phòng", "nơi làm"
+            )
         )
 
         return when {
-            asksHome && asksWork -> setOf(RouteTarget.HOME, RouteTarget.WORK)
+            asksHome && (asksWork || asksSchool) -> setOf(RouteTarget.HOME, RouteTarget.WORK)
             asksHome -> setOf(RouteTarget.HOME)
-            asksWork -> setOf(RouteTarget.WORK)
-            else -> setOf(RouteTarget.ANY)
+            asksWork || asksSchool -> setOf(RouteTarget.WORK)
+            else -> null
         }
     }
 
@@ -408,7 +505,7 @@ $basePrompt
         val routePhrases = listOf(
             "chỉ đường", "hỏi đường", "duong di", "lộ trình", "dẫn đường", "route",
             "google map", "google maps", "ban do", "maps", "map", "đi đến",
-            "từ đây đến", "từ đây tới", "tới", "đến nhà", "đến công ty", "đến cơ quan",
+            "từ đây đến", "từ đây tới", "đi tới", "đến nhà", "đến công ty", "đến cơ quan",
             "về nhà như nào", "đi công ty như nào", "đi cơ quan như nào", "đường nào nhanh",
             "đến trường", "đi học", "trường nào", "tới trường"
         )
@@ -536,15 +633,23 @@ Câu hỏi người dùng: $userText
         val current = mandatoryCurrentLocation
         val currentOrigin = current?.let { formatLatLng(it.first, it.second) } ?: latestCurrentLocationText
         val plans = buildTrafficPlans(targets, currentOrigin, userText)
+        val asksSchool = isSchoolRelatedQuery(normalizeForIntent(userText))
 
         if (plans.isEmpty()) {
+            val missingRouteHint = when {
+                asksSchool -> "Không tìm thấy lộ trình trường để kiểm tra giao thông."
+                RouteTarget.HOME in targets && RouteTarget.WORK in targets -> "Không tìm thấy lộ trình nhà/cơ quan để kiểm tra giao thông."
+                RouteTarget.HOME in targets -> "Không tìm thấy lộ trình nhà để kiểm tra giao thông."
+                RouteTarget.WORK in targets -> "Không tìm thấy lộ trình cơ quan để kiểm tra giao thông."
+                else -> "Không tìm thấy lộ trình phù hợp để kiểm tra giao thông."
+            }
             return """
 [DU_LIEU_TRAFFIC_DA_XU_LY]
 - yeu_cau_nguoi_dung: $userText
-- ket_luan_he_thong: Không tìm thấy lộ trình nhà/cơ quan/trường để kiểm tra giao thông.
+- ket_luan_he_thong: $missingRouteHint
 
 Hướng dẫn trả lời:
-1) Báo người dùng hiện chưa có dữ liệu lộ trình nhà/cơ quan/trường.
+1) Báo người dùng hiện chưa có dữ liệu lộ trình phù hợp với yêu cầu.
 2) Gợi ý người dùng vào màn hình Routes để nhập địa điểm cần đến.
 3) Trả lời ngắn gọn, dễ hiểu.
 [/DU_LIEU_TRAFFIC_DA_XU_LY]
@@ -738,11 +843,10 @@ Hướng dẫn trả lời:
         if (schedules.isEmpty()) return null
 
         val normQuery = normalizeForIntent(userText)
-        val asksSchool = listOf("trường", "đi học", "học").any { normQuery.contains(normalizeForIntent(it)) }
+        val asksSchool = isSchoolRelatedQuery(normQuery)
 
         if (target == RouteTarget.WORK && asksSchool) {
-            val schoolSchedule = inferSchoolScheduleForQuery(userText)
-            if (schoolSchedule != null) return schoolSchedule
+            return inferSchoolScheduleForQuery(userText)
         }
 
         val queryMatched = findBestScheduleByQuery(target, normQuery, schedules)
@@ -756,20 +860,24 @@ Hướng dẫn trả lời:
         if (schedules.isEmpty()) return null
 
         val normQuery = normalizeForIntent(userText)
-        val asksSchool = listOf("trường", "đi học", "học").any { normQuery.contains(normalizeForIntent(it)) }
+        val asksSchool = isSchoolRelatedQuery(normQuery)
         if (!asksSchool) return null
 
         val schoolCandidates = schedules.filter { schedule ->
-            val content = normalizeForIntent("${schedule.actionName} ${schedule.destinationAddress}")
-            content.contains(normalizeForIntent("trường")) || content.contains(normalizeForIntent("học"))
+            isSchoolLikeSchedule(schedule)
         }
         if (schoolCandidates.isEmpty()) return null
 
         val exactMatched = schoolCandidates.firstOrNull { schedule ->
             val content = normalizeForIntent("${schedule.actionName} ${schedule.destinationAddress}")
-            extractQueryTokens(normQuery).any { token -> token.length >= 4 && content.contains(token) }
+            extractQueryTokens(normQuery).any { token -> token.length >= 3 && content.contains(token) }
         }
         return exactMatched ?: schoolCandidates.firstOrNull()
+    }
+
+    private fun isSchoolRelatedQuery(normQuery: String): Boolean {
+        return listOf("truong", "di hoc", "hoc", "dai hoc", "hoc vien", "cao dang")
+            .any { normQuery.contains(it) }
     }
 
     private fun findBestScheduleByQuery(
@@ -778,8 +886,8 @@ Hướng dẫn trả lời:
         schedules: List<TrafficSchedule>
     ): TrafficSchedule? {
         val candidates = when (target) {
-            RouteTarget.HOME -> schedules.filter { it.placeType == RoutePlaceType.HOME }
-            RouteTarget.WORK -> schedules.filter { it.placeType == RoutePlaceType.WORK }
+            RouteTarget.HOME -> schedules.filter { it.placeType == RoutePlaceType.HOME || isHomeLikeSchedule(it) }
+            RouteTarget.WORK -> schedules.filter { it.placeType == RoutePlaceType.WORK || isWorkLikeSchedule(it) }
             RouteTarget.ANY -> schedules
         }
         if (candidates.isEmpty()) return null
@@ -790,7 +898,7 @@ Hướng dẫn trả lời:
         return candidates
             .map { schedule ->
                 val content = normalizeForIntent("${schedule.actionName} ${schedule.destinationAddress}")
-                val score = tokens.count { token -> token.length >= 4 && content.contains(token) }
+                val score = tokens.count { token -> token.length >= 3 && content.contains(token) }
                 schedule to score
             }
             .maxByOrNull { it.second }
@@ -800,8 +908,8 @@ Hướng dẫn trả lời:
 
     private fun extractQueryTokens(normQuery: String): List<String> {
         val stopWords = setOf(
-            "chi", "duong", "toi", "den", "di", "ve", "nha", "co", "quan", "cong", "ty",
-            "o", "la", "nao", "the", "gio", "bay", "moi", "toi", "map", "maps", "google"
+            "chi", "duong", "toi", "den", "di", "ve",
+            "o", "la", "nao", "the", "gio", "bay", "moi", "map", "maps", "google"
         )
         return normQuery
             .split(Regex("\\s+"))
@@ -819,32 +927,117 @@ Hướng dẫn trả lời:
         }
 
         val byPlaceType = when (target) {
-            RouteTarget.HOME -> schedules.firstOrNull { it.placeType == RoutePlaceType.HOME }
-            RouteTarget.WORK -> schedules.firstOrNull { it.placeType == RoutePlaceType.WORK }
+            RouteTarget.HOME -> selectMostSpecificSchedule(
+                schedules.filter { it.placeType == RoutePlaceType.HOME || isHomeLikeSchedule(it) },
+                target
+            )
+            RouteTarget.WORK -> selectMostSpecificSchedule(
+                schedules.filter { it.placeType == RoutePlaceType.WORK || isWorkLikeSchedule(it) },
+                target
+            )
             RouteTarget.ANY -> null
         }
         if (byPlaceType != null) return byPlaceType
 
         val matcher: (TrafficSchedule) -> Boolean = if (target == RouteTarget.HOME) {
             { s ->
-                val name = normalizeForIntent(s.actionName)
-                name.contains("nha") || name.contains("tan lam") || name.contains("ve nha") || name.contains("home")
+                val content = normalizeForIntent("${s.actionName} ${s.destinationAddress}")
+                content.contains("nha") ||
+                    content.contains("tan lam") ||
+                    content.contains("ve nha") ||
+                    content.contains("home") ||
+                    content.contains("tro") ||
+                    content.contains("phong tro") ||
+                    content.contains("ky tuc xa") ||
+                    content.contains("noi o") ||
+                    content.contains("cho o")
             }
         } else {
             { s ->
-                val name = normalizeForIntent(s.actionName)
-                name.contains("di lam") ||
-                    name.contains("cong ty") ||
-                    name.contains("work") ||
-                    name.contains("truong") ||
-                    name.contains("co quan") ||
-                    name.contains("van phong") ||
-                    name.contains("noi lam")
+                val content = normalizeForIntent("${s.actionName} ${s.destinationAddress}")
+                content.contains("di lam") ||
+                    content.contains("cong ty") ||
+                    content.contains("work") ||
+                    content.contains("co quan") ||
+                    content.contains("van phong") ||
+                    content.contains("noi lam")
             }
         }
 
-        return schedules.firstOrNull(matcher)
+        val fallbackMatched = schedules.filter(matcher)
+        return selectMostSpecificSchedule(fallbackMatched, target)
             ?: if (target == RouteTarget.HOME) schedules.lastOrNull() else schedules.firstOrNull()
+    }
+
+    private fun selectMostSpecificSchedule(candidates: List<TrafficSchedule>, target: RouteTarget): TrafficSchedule? {
+        if (candidates.isEmpty()) return null
+
+        val homeHints = listOf(
+            "nhà", "nha", "home", "về nhà", "ve nha", "nơi ở", "noi o", "chỗ ở", "cho o",
+            "trọ", "tro", "phòng trọ", "phong tro", "ký túc xá", "ky tuc xa"
+        )
+        val workHints = listOf(
+            "đi làm", "di lam", "công ty", "cong ty", "work", "cơ quan", "co quan", "văn phòng", "van phong", "nơi làm", "noi lam"
+        )
+
+        return candidates.withIndex().maxByOrNull { indexed ->
+            val schedule = indexed.value
+            val contentNorm = normalizeForIntent("${schedule.actionName} ${schedule.destinationAddress}")
+            val hints = if (target == RouteTarget.HOME) homeHints else workHints
+
+            var score = 0
+            if (schedule.destinationAddress.isNotBlank()) score += 8
+            if (isDetailedAddress(schedule.destinationAddress)) score += 25
+            if (containsAnyNormalized(contentNorm, hints)) score += 12
+
+            // Ưu tiên mục mới hơn nếu điểm bằng nhau.
+            score * 1000 + indexed.index
+        }?.value
+    }
+
+    private fun isDetailedAddress(address: String): Boolean {
+        val trimmed = address.trim()
+        if (trimmed.isBlank()) return false
+
+        val norm = normalizeForIntent(trimmed)
+        val genericOnly = setOf(
+            "nha", "home", "tro", "phong tro", "ky tuc xa", "noi o", "cho o",
+            "co quan", "cong ty", "van phong", "truong"
+        )
+        if (norm in genericOnly) return false
+
+        return trimmed.any { it.isDigit() } || trimmed.contains(",") || trimmed.length >= 12
+    }
+
+    private fun isHomeLikeSchedule(schedule: TrafficSchedule): Boolean {
+        val content = normalizeForIntent("${schedule.actionName} ${schedule.destinationAddress}")
+        return containsAnyNormalized(
+            content,
+            listOf(
+                "nhà", "nha", "home", "về nhà", "ve nha", "nơi ở", "noi o", "chỗ ở", "cho o",
+                "trọ", "tro", "phòng trọ", "phong tro", "ký túc xá", "ky tuc xa"
+            )
+        )
+    }
+
+    private fun isWorkLikeSchedule(schedule: TrafficSchedule): Boolean {
+        val content = normalizeForIntent("${schedule.actionName} ${schedule.destinationAddress}")
+        return containsAnyNormalized(
+            content,
+            listOf(
+                "đi làm", "di lam", "công ty", "cong ty", "work", "cơ quan", "co quan", "văn phòng", "van phong", "nơi làm", "noi lam"
+            )
+        )
+    }
+
+    private fun isSchoolLikeSchedule(schedule: TrafficSchedule): Boolean {
+        val content = normalizeForIntent("${schedule.actionName} ${schedule.destinationAddress}")
+        return containsAnyNormalized(
+            content,
+            listOf(
+                "trường", "truong", "đi học", "di hoc", "học", "hoc", "đại học", "dai hoc", "học viện", "hoc vien", "cao đẳng", "cao dang"
+            )
+        )
     }
 
     private fun inferNearestSchedule(schedules: List<TrafficSchedule>): TrafficSchedule? {

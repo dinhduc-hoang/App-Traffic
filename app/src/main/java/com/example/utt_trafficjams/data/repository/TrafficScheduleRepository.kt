@@ -73,7 +73,8 @@ class TrafficScheduleRepository(context: Context) {
                         actionName = obj.optString("actionName", "Lịch trình"),
                         placeType = parsePlaceType(
                             obj.optString("placeType", ""),
-                            obj.optString("actionName", "")
+                            obj.optString("actionName", ""),
+                            obj.optString("destinationAddress", "")
                         ),
                         destinationAddress = obj.optString("destinationAddress", ""),
                         hour = obj.optInt("hour", 7).coerceIn(0, 23),
@@ -122,14 +123,34 @@ class TrafficScheduleRepository(context: Context) {
         }
     }
 
-    private fun parsePlaceType(raw: String, actionName: String): RoutePlaceType {
+    private fun parsePlaceType(raw: String, actionName: String, destinationAddress: String): RoutePlaceType {
         val byRaw = runCatching { RoutePlaceType.valueOf(raw.uppercase(Locale.US)) }.getOrNull()
-        if (byRaw != null) return byRaw
+        if (byRaw == RoutePlaceType.HOME || byRaw == RoutePlaceType.WORK) return byRaw
 
-        val normalizedName = actionName.lowercase(Locale.getDefault())
+        val normalizedContent = (actionName + " " + destinationAddress).lowercase(Locale.getDefault())
         return when {
-            normalizedName.contains("nha") || normalizedName.contains("tan lam") || normalizedName.contains("ve nha") -> RoutePlaceType.HOME
-            normalizedName.contains("di lam") || normalizedName.contains("co quan") || normalizedName.contains("cong ty") || normalizedName.contains("van phong") -> RoutePlaceType.WORK
+            normalizedContent.contains("nha") ||
+                normalizedContent.contains("nhà") ||
+                normalizedContent.contains("tan lam") ||
+                normalizedContent.contains("ve nha") ||
+                normalizedContent.contains("về nhà") ||
+                normalizedContent.contains("tro") ||
+                normalizedContent.contains("trọ") ||
+                normalizedContent.contains("phong tro") ||
+                normalizedContent.contains("phòng trọ") ||
+                normalizedContent.contains("ky tuc xa") ||
+                normalizedContent.contains("ký túc xá") ||
+                normalizedContent.contains("noi o") ||
+                normalizedContent.contains("nơi ở") ||
+                normalizedContent.contains("cho o") ||
+                normalizedContent.contains("chỗ ở") -> RoutePlaceType.HOME
+            normalizedContent.contains("di lam") ||
+                normalizedContent.contains("co quan") ||
+                normalizedContent.contains("cơ quan") ||
+                normalizedContent.contains("cong ty") ||
+                normalizedContent.contains("công ty") ||
+                normalizedContent.contains("van phong") ||
+                normalizedContent.contains("văn phòng") -> RoutePlaceType.WORK
             else -> RoutePlaceType.OTHER
         }
     }

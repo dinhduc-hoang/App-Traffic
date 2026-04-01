@@ -2,6 +2,7 @@ package com.example.utt_trafficjams.ai
 
 import android.util.Base64
 import android.util.Log
+import com.example.utt_trafficjams.data.model.RouteHazardCheckResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,7 +32,10 @@ class GeminiLiveSession(
     private val onError        : (String) -> Unit,
     private val liveAddressContextProvider: () -> LiveAddressContext = { LiveAddressContext() },
     private val trafficToolService: TrafficToolService = MockTrafficToolService(),
-    private val onOpenGoogleMapsRequested: (origin: String?, destination: String, travelMode: String) -> Boolean = { _, _, _ -> false }
+    private val onOpenGoogleMapsRequested: (origin: String?, destination: String, travelMode: String) -> Boolean = { _, _, _ -> false },
+    private val onInspectRouteHazards: suspend (origin: String?, destination: String) -> RouteHazardCheckResult = { _, _ ->
+        RouteHazardCheckResult(hasHazardAlerts = false, source = "none")
+    }
 ) {
     companion object {
         private const val TAG   = "GeminiLiveSession"
@@ -462,9 +466,15 @@ Du lieu dia chi tinh cua nguoi dung:
 - work_address: $workAddress
 
 QUY TAC BAT BUOC:
+- Chi duoc tra loi cac chu de lien quan den giao thong, chi duong, tinh trang duong, an toan giao thong, luat giao thong va muc phat vi pham giao thong.
+- Neu cau hoi ngoai pham vi tren thi TU CHOI tra loi va chi tra ve dung 1 cau sau: "Xin lỗi, tôi chỉ hỗ trợ các câu hỏi về giao thông và luật giao thông."
+- Khong duoc tra loi noi dung ngoai pham vi, khong dua meo, khong mo rong sang chu de khac.
+- Neu nguoi dung da neu ro diem den (vi du ten duong, ten dia danh, ten truong, ben xe, quan/huyen...) thi PHAN TICH va GIU NGUYEN diem den do khi goi tool; khong tu y doi sang nha/co quan.
+- Neu thieu diem xuat phat khi goi check_traffic thi uu tien dung current_location. Neu current_location khong co thi hoi lai nguoi dung diem xuat phat.
 - Neu prompt co block [DU_LIEU_TRAFFIC_DA_XU_LY] thi dung du lieu trong block de tra loi va KHONG goi tool check_traffic lan nua.
 - Neu nguoi dung hoi duong di, thoi gian di chuyen, hoac co tac duong khong thi BAT BUOC goi tool check_traffic truoc khi tra loi.
 - Neu nguoi dung yeu cau chi duong/mo ban do/mo Google Maps/di den mot noi cu the thi BAT BUOC goi tool open_google_maps de mo dan duong.
+- Neu ket qua tool open_google_maps co has_hazard_alerts=true thi BAT BUOC noi ro tren tuyen co canh bao gi (ngap lut/sat lo/sut lun/khac) truoc khi ket luan.
 - Neu nguoi dung hoi luat giao thong/muc phat/vi pham thi uu tien van ban phap luat dang co hieu luc moi nhat. Neu khong chac thong tin chi tiet thi phai noi ro can doi chieu van ban moi nhat, khong duoc tu doan.
 - Chi sau khi da nhan duoc ket qua tool moi duoc tong hop cau tra loi.
 """.trimIndent()
@@ -479,7 +489,7 @@ QUY TAC BAT BUOC:
                 put("properties", JSONObject().apply {
                     put("origin", JSONObject().apply {
                         put("type", "STRING")
-                        put("description", "Diem xuat phat")
+                        put("description", "Diem xuat phat (co the bo trong de dung vi tri hien tai)")
                     })
                     put("destination", JSONObject().apply {
                         put("type", "STRING")
@@ -487,7 +497,6 @@ QUY TAC BAT BUOC:
                     })
                 })
                 put("required", JSONArray().apply {
-                    put("origin")
                     put("destination")
                 })
             })
@@ -609,19 +618,58 @@ QUY TAC BAT BUOC:
         }
     }
 
-    private suspend fun processCheckTrafficToolCall(call: ToolCallPayload) {
-        val origin = call.args.optString("origin", "").trim()
-        val destination = call.args.optString("destination", "").trim()
+    private fun extractFirstArg(args: JSONObject, vararg keys: String): String {
+        keys.forEach { key ->
+            val value = args.optString(key, "").trim()
+            if (value.isNotBlank()) return value
+        }
+        return ""
+    }
 
-        if (origin.isBlank() || destination.isBlank()) {
+    private fun resolveContextOriginOrNull(): String? {
+        val current = liveAddressContextProvider().currentLocation?.trim().orEmpty()
+        if (current.isBlank()) return null
+
+        val normalized = current.lowercase(Locale.US)
+        if (normalized == "khong co" || normalized == "không có") return null
+
+        return current
+    }
+
+    private suspend fun processCheckTrafficToolCall(call: ToolCallPayload) {
+        val destination = extractFirstArg(
+            call.args,
+            "destination", "to", "end", "diem_den", "dich_den"
+        )
+        val origin = extractFirstArg(
+            call.args,
+            "origin", "from", "start", "diem_di", "xuat_phat"
+        ).ifBlank {
+            resolveContextOriginOrNull().orEmpty()
+        }
+
+        if (destination.isBlank()) {
+            sendToolResponse(
+                call,
+                JSONObject().apply {
+                    put("error", "missing_required_args")
+                    put("required", JSONArray().apply {
+                        put("destination")
+                    })
+                }
+            )
+            return
+        }
+
+        if (origin.isBlank()) {
             sendToolResponse(
                 call,
                 JSONObject().apply {
                     put("error", "missing_required_args")
                     put("required", JSONArray().apply {
                         put("origin")
-                        put("destination")
                     })
+                    put("hint", "missing_origin_and_no_current_location")
                 }
             )
             return
@@ -681,10 +729,16 @@ QUY TAC BAT BUOC:
     }
 
     private suspend fun processOpenGoogleMapsToolCall(call: ToolCallPayload) {
-        val origin = call.args.optString("origin", "").trim().ifBlank { null }
-        val destination = call.args.optString("destination", "").trim()
+        val origin = extractFirstArg(
+            call.args,
+            "origin", "from", "start", "diem_di", "xuat_phat"
+        ).ifBlank { null }
+        val destination = extractFirstArg(
+            call.args,
+            "destination", "to", "end", "diem_den", "dich_den"
+        )
         val travelModeRaw = call.args
-            .optString("travel_mode", call.args.optString("mode", "driving"))
+            .optString("travel_mode", call.args.optString("travelMode", call.args.optString("mode", "driving")))
             .trim()
             .lowercase(Locale.US)
         val travelMode = when (travelModeRaw) {
@@ -712,6 +766,16 @@ QUY TAC BAT BUOC:
             onOpenGoogleMapsRequested(origin, destination, travelMode)
         }.getOrElse { false }
 
+        val hazardCheck = runCatching {
+            onInspectRouteHazards(origin, destination)
+        }.getOrElse { ex ->
+            RouteHazardCheckResult(
+                hasHazardAlerts = false,
+                source = "hazard_route",
+                sourceNote = ex.message ?: "hazard_check_failed"
+            )
+        }
+
         val responsePayload = JSONObject().apply {
             put("status", if (opened) "opened" else "failed")
             put("destination", destination)
@@ -722,6 +786,23 @@ QUY TAC BAT BUOC:
             if (!opened) {
                 put("error", "cannot_open_google_maps")
             }
+
+            put("has_hazard_alerts", hazardCheck.hasHazardAlerts)
+            put("hazard_source", hazardCheck.source)
+            hazardCheck.sourceNote?.takeIf { it.isNotBlank() }?.let { note ->
+                put("hazard_source_note", note)
+            }
+            put("hazard_alerts", JSONArray().apply {
+                hazardCheck.matches.forEach { match ->
+                    put(JSONObject().apply {
+                        put("issue", match.issue)
+                        put("distance_meters", match.distanceMeters)
+                        put("lat", match.lat)
+                        put("lng", match.lng)
+                        put("reported_at", match.createdAtMs)
+                    })
+                }
+            })
         }
 
         sendToolResponse(call, responsePayload)

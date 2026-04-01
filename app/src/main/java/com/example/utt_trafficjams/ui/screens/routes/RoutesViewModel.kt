@@ -175,7 +175,21 @@ class RoutesViewModel(application: Application) : AndroidViewModel(application) 
     private fun inferPlaceTypeFromText(name: String, address: String): RoutePlaceType {
         val content = (name + " " + address).lowercase(Locale.getDefault())
         return when {
-            content.contains("nha") || content.contains("nhà") || content.contains("home") || content.contains("ve nha") || content.contains("về nhà") -> RoutePlaceType.HOME
+            content.contains("nha") ||
+                content.contains("nhà") ||
+                content.contains("home") ||
+                content.contains("ve nha") ||
+                content.contains("về nhà") ||
+                content.contains("tro") ||
+                content.contains("trọ") ||
+                content.contains("phong tro") ||
+                content.contains("phòng trọ") ||
+                content.contains("ky tuc xa") ||
+                content.contains("ký túc xá") ||
+                content.contains("noi o") ||
+                content.contains("nơi ở") ||
+                content.contains("cho o") ||
+                content.contains("chỗ ở") -> RoutePlaceType.HOME
             content.contains("co quan") ||
                 content.contains("cơ quan") ||
                 content.contains("cong ty") ||

@@ -34,6 +34,11 @@ class TrafficAlertReceiver : BroadcastReceiver() {
             ?.takeIf { it.isNotEmpty() }
             ?: return
 
+        val alertType = intent.getStringExtra(TrafficAlertScheduler.EXTRA_ALERT_TYPE)
+            ?.trim()
+            ?.takeIf { it == TrafficAlertScheduler.ALERT_TYPE_PRE_TRIP || it == TrafficAlertScheduler.ALERT_TYPE_ON_TIME }
+            ?: TrafficAlertScheduler.ALERT_TYPE_PRE_TRIP
+
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
@@ -56,7 +61,7 @@ class TrafficAlertReceiver : BroadcastReceiver() {
                     null
                 }
 
-                showTrafficNotification(context, schedule, trafficResult)
+                showTrafficNotification(context, schedule, trafficResult, alertType)
                 TrafficAlertScheduler(context).scheduleNextForSchedule(schedule)
             } finally {
                 pendingResult.finish()
@@ -67,7 +72,8 @@ class TrafficAlertReceiver : BroadcastReceiver() {
     private fun showTrafficNotification(
         context: Context,
         schedule: TrafficSchedule,
-        result: com.example.utt_trafficjams.ai.TrafficToolResponse?
+        result: com.example.utt_trafficjams.ai.TrafficToolResponse?,
+        alertType: String
     ) {
         ensureChannel(context)
 
@@ -81,14 +87,31 @@ class TrafficAlertReceiver : BroadcastReceiver() {
             return
         }
 
-        val title = "Nhắc trước giờ đi: ${schedule.actionName}"
+        val title = if (alertType == TrafficAlertScheduler.ALERT_TYPE_ON_TIME) {
+            "Đến giờ đi: ${schedule.actionName}"
+        } else {
+            "Nhắc trước giờ đi: ${schedule.actionName}"
+        }
+
         val body = if (result == null) {
-            "Không lấy được dữ liệu giao thông lúc này. Mở app để xem và kiểm tra lại."
+            if (alertType == TrafficAlertScheduler.ALERT_TYPE_ON_TIME) {
+                "Đến giờ rồi nhưng chưa lấy được dữ liệu giao thông hiện tại. Mở app để kiểm tra lại."
+            } else {
+                "Không lấy được dữ liệu giao thông lúc này. Mở app để xem và kiểm tra lại."
+            }
         } else if (result.trafficStatus) {
             val reason = result.recommendationReason?.let { " $it" } ?: ""
-            "Đường đang đông. Thời gian di chuyển ước tính khoảng ${result.duration}.$reason"
+            if (alertType == TrafficAlertScheduler.ALERT_TYPE_ON_TIME) {
+                "Hiện tại đường đang đông. Ước tính di chuyển khoảng ${result.duration}.$reason"
+            } else {
+                "Đường đang đông. Thời gian di chuyển ước tính khoảng ${result.duration}.$reason"
+            }
         } else {
-            "Đường thông thoáng. Thời gian di chuyển ước tính khoảng ${result.duration}."
+            if (alertType == TrafficAlertScheduler.ALERT_TYPE_ON_TIME) {
+                "Hiện tại đường không tắc. Ước tính di chuyển khoảng ${result.duration}."
+            } else {
+                "Đường thông thoáng. Thời gian di chuyển ước tính khoảng ${result.duration}."
+            }
         }
 
         val openChatIntent = Intent(context, MainActivity::class.java).apply {
@@ -100,7 +123,7 @@ class TrafficAlertReceiver : BroadcastReceiver() {
 
         val contentIntent = PendingIntent.getActivity(
             context,
-            schedule.id.hashCode(),
+            buildNotificationId(schedule.id, alertType),
             openChatIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -115,7 +138,11 @@ class TrafficAlertReceiver : BroadcastReceiver() {
             .setContentIntent(contentIntent)
             .build()
 
-        NotificationManagerCompat.from(context).notify(schedule.id.hashCode(), notification)
+        NotificationManagerCompat.from(context).notify(buildNotificationId(schedule.id, alertType), notification)
+    }
+
+    private fun buildNotificationId(scheduleId: String, alertType: String): Int {
+        return "$scheduleId#$alertType".hashCode()
     }
 
     private fun ensureChannel(context: Context) {
@@ -123,10 +150,10 @@ class TrafficAlertReceiver : BroadcastReceiver() {
 
         val channel = NotificationChannel(
             TrafficAlertScheduler.CHANNEL_ID,
-            "Cảnh báo lộ trình trước giờ đi",
+            "Cảnh báo giao thông theo lộ trình",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Thông báo tình trạng tắc đường trước giờ đi 30 phút"
+            description = "Thông báo tình trạng tắc đường trước 30 phút và đúng giờ khởi hành"
         }
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
